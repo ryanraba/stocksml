@@ -1,139 +1,161 @@
-import sys
+#    Copyright (C) 2021  Ryan Raba
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import os
 import numpy as np
 import random
-import os
-import time
-import matplotlib.pyplot as plt
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
 random.seed(11)
 np.random.seed(13)
 
-# Globals
-#SYMBOL = 'ARNC'
-SYMBOL = 'SPY'
-SUPPORT = ['VIXM', 'BND']
-
-#TRAIN_START = '1992-01-01'
-TRAIN_START = '2015-01-01'
-TRAIN_END = '2018-05-29' #time.strftime("%Y-%m-%d")
-MAXLEN = 10
-TARGET_WINDOW = 5
 
 
-####################################################
-## define functions that compute various indicators
-## from basic inputs (high, low, open, close)
-####################################################
-def BarTrend(highs, lows, opens, closes):
-    hldiffs = np.array(highs) - np.array(lows)
-    codiffs = np.array(closes) - np.array(opens)
-    ratios = np.zeros((len(hldiffs)), dtype=float)
-    for ii in range(len(hldiffs)):
-        if hldiffs[ii] > 0.0:
-            ratios[ii] = codiffs[ii]/hldiffs[ii]
-    return ratios
-
-def Percent(values):
-    perc = np.zeros((len(values)), dtype=float)
-    for ii in range(1,len(values)):
-        if values[ii-1] > 0:
-            perc[ii] = (values[ii] - values[ii-1])/values[ii-1]
-    return perc
-
-def Breakout(highs, lows):
-    diffs = list(np.array(highs) - np.array(lows))
-    std = np.std(diffs)
-    values = np.zeros((len(diffs)), dtype=int)
-    for ii in range(1, len(diffs)):
-        if diffs[ii] > 1*std:
-            values[ii] = 1
-            if highs[ii] < highs[ii-1]:
-                values[ii] = -1
-    return list(values)
-
-
-  
-#####################################################################
-## Download stock data and compute indicator features
+###################################################
+## Build a model with the given structure
 ##
-## returns data structure for regression
+## layers = list of tuples defining structure of model
+##          each tuple is (layer, size) where layer can
+#           be 'dnn', 'cnn', 'lstm', 'rnn', or 'drop'
+## shape = tuple of training data shape
 ##
-######################################################################
-import pandas_datareader.data as web
-from datetime import datetime as dtf
-from sklearn.preprocessing import PolynomialFeatures
-
-print('-- downloading data')
-
-dt = web.DataReader(SYMBOL, 'iex',
-                    dtf.strptime(TRAIN_START, '%Y-%m-%d'),
-                    dtf.strptime(TRAIN_END, '%Y-%m-%d'))
-#raw_dates = list(dt.index.get_level_values(1).strftime('%Y-%m-%d'))  #list(dt.index.strftime('%Y-%m-%d'))
-#raw_data = dt.values
-
-for ff in range(len(SUPPORT)):
-  dt = web.DataReader(SUPPORT[ff], 'iex',
-                      dtf.strptime(TRAIN_START, '%Y-%m-%d'),
-                      dtf.strptime(TRAIN_END, '%Y-%m-%d'))
-  support_dates = list(dt.index.get_level_values(1).strftime('%Y-%m-%d'))
-  if len(np.setdiff1d(raw_dates, support_dates)) > 0: print("ERROR: date ranges from selected stocks dont match")
-
-  support_data += [dt.values]
-
-print('-- data retrieved')
-print('-- support data size ' + str(len(support_data)))
-
-N = 7
-FEATURES = N + N*len(SUPPORT)
-
-# ORDER: close, high, low, open, volume
+###################################################
+def BuildModel(layers, shape):
+    from keras.models import Model
+    from keras.layers import Input, Dense, SimpleRNN, LSTM, Conv1D, Flatten, Dropout
     
-# build desired set of indicators for the model
-nn = 1.0
-bdata = np.zeros((len(raw_data), FEATURES), dtype=float)
-bdata[:,0] = np.power(Percent(raw_data[:,1]), nn) # high
-bdata[:,1] = np.power(Percent(raw_data[:,2]), nn) # low
-bdata[:,2] = np.power(Percent(raw_data[:,3]), nn) # open
-bdata[:,3] = np.power(Percent(raw_data[:,0]), nn) # close
-bdata[:,4] = np.power(raw_data[:,4], nn) # volume
-bdata[:,5] = np.power(BarTrend(raw_data[:,1], raw_data[:,2], raw_data[:,3], raw_data[:,0]), nn)
-bdata[:,6] = np.power(Breakout(raw_data[:,1], raw_data[:,2]), nn)
+    ins = Input(shape=shape[1:])
+    hh = ins
+    for ll, layer in enumerate(layers):
+        if layer[0] is 'dnn':
+            hh = Dense(layer[1], activation='tanh')(hh)
+        elif layer[0] is 'rnn':
+            hh = SimpleRNN(layer[1], activation='tanh', return_sequences=(ll+1<len(layers)) and (layers[ll+1][0] in ['cnn','lstm','rnn']))(hh)
+        elif layer[0] is 'lstm':
+            hh = LSTM(layer[1], activation='tanh', return_sequences=(ll+1<len(layers)) and (layers[ll+1][0] in ['cnn','lstm','rnn']))(hh)
+        elif layer[0] is 'cnn':
+            hh = Conv1D(layer[1], 3, padding='valid', activation='relu')(hh)
+            if (ll+1 >= len(layers)) or (layers[ll+1][0] in ['dnn']):
+                hh = Flatten()(hh)
+        elif layer[0] is 'drop':
+            hh = Dropout(layer[1])(hh)
+    
+    trade = Dense(5, activation='softmax')(hh)
+    limit = Dense(1, activation='tanh')(hh)
 
-for ff in range(len(SUPPORT)):
-  bdata[:,N*ff+N] = np.power(Percent(support_data[ff][:,1]), nn) # high
-  bdata[:,N*ff+N+1] = np.power(Percent(support_data[ff][:,2]), nn) # low
-  bdata[:,N*ff+N+2] = np.power(Percent(support_data[ff][:,3]), nn) # open
-  bdata[:,N*ff+N+3] = np.power(Percent(support_data[ff][:,0]), nn) # close
-  bdata[:,N*ff+N+4] = np.power(support_data[ff][:,4], nn) # volume
-  bdata[:,N*ff+N+5] = np.power(BarTrend(support_data[ff][:,1], support_data[ff][:,2], support_data[ff][:,3], support_data[ff][:,0]), nn)
-  bdata[:,N*ff+N+6] = np.power(Breakout(support_data[ff][:,1], support_data[ff][:,2]), nn)
-
-bdata[np.isnan(bdata)] = 0.0
-
-pdata = PolynomialFeatures(degree=1, interaction_only=True, 
-                          include_bias=False).fit_transform(bdata)
-
-pdata[np.isnan(pdata)] = 0.0
-
-# mean normalization
-for kk in range(0,len(pdata[0])):
-    if np.std(pdata[:,kk]) > 0.0:
-        pdata[:,kk] = (pdata[:,kk] - np.mean(pdata[:,kk]))/np.ptp(pdata[:,kk])
-
-# vectorization
-data = np.zeros((len(pdata), MAXLEN, len(pdata[0])), dtype=np.float)
-for ii in range(len(pdata)):
-    for jj in range(MAXLEN):
-        if (ii-jj) > 0:
-          data[ii,jj] = pdata[ii-jj]
+    model = Model(inputs=ins, outputs=[trade, limit])
+    model.compile(loss=['categorical_crossentropy','mse'], optimizer='adam')
+    return model
 
 
-target = np.zeros((len(raw_data)), dtype=int)
-for ii in range(len(target)-1):
-    peak = np.max(raw_data[ii+1:ii+TARGET_WINDOW+1, 1])
-    if (raw_data[ii,1] > 0.0) and (peak/raw_data[ii,1] > 1.01): 
-      target[ii] = 1
 
-DATES = raw_dates
 
-print(len(raw_data), len(target), data.shape)
+###################################################
+## Train model against provided data
+##
+###################################################
+def TrainModel(model, sdf, dx, days=5, maxiter=1000):
+    import matplotlib.pyplot as plt
+    from keras.models import clone_model
+    from stocksml import EvaluateChoices
+    import time
+    
+    models = [model, clone_model(model)]
+    models[1].compile(loss=['categorical_crossentropy','mse'], optimizer='adam')
+
+    fig, ax = plt.subplots(2,2)
+    last_plot = 0.0
+    cum_results = np.zeros((maxiter,3))
+
+    for ee in range(maxiter):
+        
+        # randomly select a week of data
+        ss = np.random.randint(10,dx.shape[0]-6)
+        dates = list(sdf.index.values[ss:ss + days])
+        
+        # each model makes a set of trades for the week
+        results = np.zeros((len(models)))
+        choices = [[] for _ in range(len(models))]
+        for mm in range(len(models)):
+            preds = models[mm].predict_on_batch(dx[ss:ss+days])
+            choices[mm] = [(np.argmax(preds[0][dd]), preds[1][dd][0]) for dd in range(days)]
+            
+            # evaluate the performance of the trade choices
+            results[mm] = EvaluateChoices(sdf, 'SPY', dates, choices[mm])
+
+        # plot training every second
+        if time.time() - last_plot > 1.0:
+            for mm in range(2): ax[mm,0].clear()
+            for mm in range(len(models)):
+                rc = ax[0,0].scatter(np.arange(days), [cc[0] for cc in choices[mm]])
+                rc = ax[1,0].scatter(np.arange(days), [cc[1] for cc in choices[mm]])
+            plt.pause(0.05)
+            last_plot = time.time()
+        
+        # the model earning the most money wins
+        # the winner defines the truth data for this week
+        # if neither is successful, skip training this week
+        winner = np.argmax(results)
+        cum_results[ee][0] = results[winner]
+        if np.max(results) <= 1.0: continue
+        if np.max(np.abs(np.diff(results))) < 0.0025: continue
+
+        truth = [np.zeros((days,5), dtype=int), np.array([ll[1] for ll in choices[winner]]).reshape(-1,1).clip(-0.05,0.05)]
+        for dd in range(days):
+            truth[0][dd,choices[winner][dd][0]] = 1
+
+        # train losing model with winners truth data if winner made money
+        for mm in range(len(models)):
+            if mm == winner: continue
+            cum_results[ee][1:] = models[mm].train_on_batch(dx[ss:ss+5], truth)[1:]
+            print('updated model %s'%str(mm), cum_results[ee][1:], results)
+            
+        # update the plots
+        for mm in range(2): ax[mm, 1].clear()
+        train_points = np.where(cum_results[:, 1] > 0)[0]
+        rc = ax[0, 1].plot(np.arange(ee), cum_results[:ee, 0])
+        rc = ax[1, 1].plot(train_points, cum_results[train_points, 1:])
+        rc = ax[1, 1].set_yscale('log')
+        plt.pause(0.05)
+
+
+#########################################################
+##
+##
+##
+#########################################################
+def Demo():
+    import time
+    from stocksml import FetchData, BuildData, Vectorize
+
+    # Globals
+    # SYMBOL = 'ARNC'
+    SYMBOLS = ['SPY', 'BND']
+
+    # TRAIN_START = '1992-01-01'
+    TRAIN_START = '2017-01-01'
+    TRAIN_END = time.strftime("%Y-%m-%d")
+
+    # download data if necessary
+    sdf = FetchData(SYMBOLS, TRAIN_START, TRAIN_END)
+
+    # load data and build features
+    ddf = BuildData(SYMBOLS)
+
+    # format for model input
+    dx = Vectorize(ddf.values, depth=5)
+
+    model = BuildModel([('rnn',32),('dnn',64),('dnn',32)], dx.shape)
+
+    TrainModel(model, sdf, dx, 5, 1000)

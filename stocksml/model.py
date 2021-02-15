@@ -12,6 +12,9 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+this module will be included in the api
+"""
 
 import os
 import numpy as np
@@ -23,15 +26,23 @@ np.random.seed(13)
 
 
 ###################################################
-## Build a model with the given structure
-##
-## layers = list of tuples defining structure of model
-##          each tuple is (layer, size) where layer can
-#           be 'dnn', 'cnn', 'lstm', 'rnn', or 'drop'
-## shape = tuple of training data shape
-##
-###################################################
 def BuildModel(layers, shape):
+    """
+    Build a model with the given structure
+
+    Parameters
+    ----------
+    layers : list of tuples
+        list of tuples defining structure of model. Each tuple is (layer, size) where layer can
+        be 'dnn', 'cnn', 'lstm', 'rnn', or 'drop'
+    shape : tuple
+        tuple of training data shape
+        
+    Returns
+    -------
+    keras.Model
+        keras Model built, compiled and ready for training
+    """
     from keras.models import Model
     from keras.layers import Input, Dense, SimpleRNN, LSTM, Conv1D, Flatten, Dropout
     
@@ -62,10 +73,24 @@ def BuildModel(layers, shape):
 
 
 ###################################################
-## Train model against provided data
-##
-###################################################
 def TrainModel(model, sdf, dx, days=5, maxiter=1000):
+    """
+    Train model against provided data
+
+    Parameters
+    ----------
+    model : keras.Model
+        prebuilt model to train
+    sdf : pandas.DataFrame
+        symbol dataframe with price information
+    dx : numpy.array
+        vectorized training data
+    days : int
+        number of days to use for trading strategy. Default is 5
+    maxiter : int
+        maximum number of training iterations. Default is 1000
+    """
+    
     import matplotlib.pyplot as plt
     from keras.models import clone_model
     from stocksml import EvaluateChoices
@@ -130,12 +155,12 @@ def TrainModel(model, sdf, dx, days=5, maxiter=1000):
         plt.pause(0.05)
 
 
-#########################################################
-##
-##
-##
+
 #########################################################
 def Demo():
+    """
+    Demonstration of how to use this package
+    """
     import time
     from stocksml import FetchData, BuildData, Vectorize
 

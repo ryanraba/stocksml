@@ -12,22 +12,34 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+this module will be included in the api
+"""
 
 
-
-###################################################
-## Evaluate trading strategy choices
-##
-## sdf = symbol data for range that choices were made
-## symbol = ticker to use for trading
-## dates = dates corresponding to choices
-## choices = tuple of trading decision and limit for each day
-##   decision = enum 0-4 = [buy_limit, buy_sell, hold, sell_limit, sell_buy]
-##   limit = -1.0 to 1.0 = fraction of open for each choice
 ###################################################
 def EvaluateChoices(pdf, symbol, dates, choices):
+    """
+    Evaluate trading strategy choices
     
-    # perform simple trading strategy against choices
+    Parameters
+    ----------
+    pdf : pandas.DataFrame
+        symbol dataframe with price information
+    symbol : str
+        ticker to use for trading and lookup in symbol dataframe
+    dates : list of str
+        dates corresponding to choices, should match subset of pdf index values
+    choices : list of tuples
+        tuple of trading decision and limit for each day. decision is an enum of range 0-4 where
+        [buy_limit, buy_sell, hold, sell_limit, sell_buy]. limit is the percent over/under open price (range -1 to 1)
+
+    Returns
+    -------
+    float
+        performance of choices as a fraction of initial cash
+    """
+    
     cash = 1000
     shares = 0
     for ii in range(len(choices)):

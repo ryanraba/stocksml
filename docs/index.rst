@@ -8,4 +8,5 @@ infrastructure of CASA with a parallel, scalable, and largely off-the-shelf solu
    :hidden:
    :maxdepth: 3
 
+   quick_start
    api

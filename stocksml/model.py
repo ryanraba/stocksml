@@ -73,7 +73,7 @@ def BuildModel(layers, shape):
 
 
 ###################################################
-def TrainModel(model, sdf, dx, days=5, maxiter=1000):
+def TrainModel(model, sdf, dx, symbol, days=5, maxiter=1000, notebook=False):
     """
     Train model against provided data
 
@@ -85,21 +85,27 @@ def TrainModel(model, sdf, dx, days=5, maxiter=1000):
         symbol dataframe with price information
     dx : numpy.array
         vectorized training data
+    symbol : str
+        symbol to use for trading strategy
     days : int
         number of days to use for trading strategy. Default is 5
     maxiter : int
         maximum number of training iterations. Default is 1000
+    notebook : bool
+        configures live plots for running in a Jupyter notebook.  Default is False
     """
     
     import matplotlib.pyplot as plt
     from keras.models import clone_model
     from stocksml import EvaluateChoices
     import time
+    if notebook:
+        from IPython import display
     
     models = [model, clone_model(model)]
     models[1].compile(loss=['categorical_crossentropy','mse'], optimizer='adam')
 
-    fig, ax = plt.subplots(2,2)
+    fig, ax = plt.subplots(2, 2, figsize=(16,8))
     last_plot = 0.0
     cum_results = np.zeros((maxiter,3))
 
@@ -117,7 +123,7 @@ def TrainModel(model, sdf, dx, days=5, maxiter=1000):
             choices[mm] = [(np.argmax(preds[0][dd]), preds[1][dd][0]) for dd in range(days)]
             
             # evaluate the performance of the trade choices
-            results[mm] = EvaluateChoices(sdf, 'SPY', dates, choices[mm])
+            results[mm] = EvaluateChoices(sdf, symbol, dates, choices[mm])
 
         # plot training every second
         if time.time() - last_plot > 1.0:
@@ -125,7 +131,11 @@ def TrainModel(model, sdf, dx, days=5, maxiter=1000):
             for mm in range(len(models)):
                 rc = ax[0,0].scatter(np.arange(days), [cc[0] for cc in choices[mm]])
                 rc = ax[1,0].scatter(np.arange(days), [cc[1] for cc in choices[mm]])
-            plt.pause(0.05)
+            if notebook:
+                display.clear_output(wait=True)
+                display.display(plt.gcf())
+            else:
+                plt.pause(0.05)
             last_plot = time.time()
         
         # the model earning the most money wins
@@ -144,7 +154,7 @@ def TrainModel(model, sdf, dx, days=5, maxiter=1000):
         for mm in range(len(models)):
             if mm == winner: continue
             cum_results[ee][1:] = models[mm].train_on_batch(dx[ss:ss+5], truth)[1:]
-            print('updated model %s'%str(mm), cum_results[ee][1:], results)
+            #print('updated model %s'%str(mm), cum_results[ee][1:], results)
             
         # update the plots
         for mm in range(2): ax[mm, 1].clear()
@@ -152,35 +162,43 @@ def TrainModel(model, sdf, dx, days=5, maxiter=1000):
         rc = ax[0, 1].plot(np.arange(ee), cum_results[:ee, 0])
         rc = ax[1, 1].plot(train_points, cum_results[train_points, 1:])
         rc = ax[1, 1].set_yscale('log')
-        plt.pause(0.05)
-
+        if notebook:
+            display.clear_output(wait=True)
+            display.display(plt.gcf())
+        else:
+            plt.pause(0.05)
 
 
 #########################################################
-def Demo():
+def Demo(notebook=False):
     """
     Demonstration of how to use this package
+    
+    Parameters
+    ----------
+    notebook : bool
+        set live plots for running properly in Jupyter notebooks.  Default is False
     """
     import time
-    from stocksml import FetchData, BuildData, Vectorize
+    from stocksml import FetchDemoData, BuildData, Vectorize
 
     # Globals
     # SYMBOL = 'ARNC'
-    SYMBOLS = ['SPY', 'BND']
+    #SYMBOLS = ['SPY', 'BND']
 
     # TRAIN_START = '1992-01-01'
-    TRAIN_START = '2017-01-01'
-    TRAIN_END = time.strftime("%Y-%m-%d")
+    #TRAIN_START = '2017-01-01'
+    #TRAIN_END = time.strftime("%Y-%m-%d")
 
     # download data if necessary
-    sdf = FetchData(SYMBOLS, TRAIN_START, TRAIN_END)
+    sdf, symbols = FetchDemoData()
 
     # load data and build features
-    ddf = BuildData(SYMBOLS)
+    ddf = BuildData(sdf, symbols)
 
     # format for model input
     dx = Vectorize(ddf.values, depth=5)
 
     model = BuildModel([('rnn',32),('dnn',64),('dnn',32)], dx.shape)
 
-    TrainModel(model, sdf, dx, 5, 1000)
+    TrainModel(model, sdf, dx, 'SPY', 5, 1000, notebook)

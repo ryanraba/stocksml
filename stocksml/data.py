@@ -135,20 +135,46 @@ def FetchData(symbols, train_start, train_end, append=False):
     return cpdf
 
 
+##############################################################
+def FetchDemoData():
+    """
+    Fetch included demonstration data files
+    
+    Returns
+    -------
+    pandas.DataFrame
+        symbol dataframe
+    """
+    import pkg_resources
+
+    cpdf = pd.DataFrame([])
+    symbols = []
+    dpath = pkg_resources.resource_filename('stocksml', 'data/')
+    if os.path.exists(dpath):
+        for file in os.listdir(dpath):
+            if not file.endswith('.csv'): continue
+            symbols += [file.split('.csv')[0]]
+            pdf = pd.read_csv(dpath+file).set_index('date')
+            pdf = pdf.rename(columns=dict([(cc, symbols[-1].lower() + '_' + cc) for cc in pdf.columns]))
+            cpdf = cpdf.merge(pdf, 'right', left_index=True, right_index=True)
+    
+    return cpdf, symbols
+
 
 ################################################################
 ## read CSV files in to Pandas Dataframe and build features
 ##
 ################################################################
-def BuildData(symbols):
-    cpdf = pd.DataFrame([])
+def BuildData(sdf, symbols):
+    cpdf = pd.DataFrame()
     for ii, symbol in enumerate(symbols):
         print('building %s data...' % symbol)
-        pdf = pd.read_csv('./data/%s.csv' % symbol).set_index('date')
-    
+        ss = symbol.lower()
+        pdf = sdf[[cc for cc in sdf.columns if cc.startswith(ss)]]
+        
         # build features
-        dm = [Percent(pdf.high.values), Percent(pdf.low.values), Percent(pdf.open.values), Percent(pdf.close.values)]
-        dm += [BarTrend(pdf.high.values, pdf.low.values, pdf.open.values, pdf.close.values)]
+        dm = [Percent(pdf[ss+'_high'].values), Percent(pdf[ss+'_low'].values), Percent(pdf[ss+'_open'].values), Percent(pdf[ss+'_close'].values)]
+        dm += [BarTrend(pdf[ss+'_high'].values, pdf[ss+'_low'].values, pdf[ss+'_open'].values, pdf[ss+'_close'].values)]
         dm = np.array(dm).transpose()
     
         # mean normalization

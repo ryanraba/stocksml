@@ -98,7 +98,6 @@ def TrainModel(model, sdf, dx, symbol, days=5, maxiter=1000, notebook=False):
     import matplotlib.pyplot as plt
     from keras.models import clone_model
     from stocksml import EvaluateChoices
-    import time
     if notebook:
         from IPython import display
     
@@ -106,7 +105,6 @@ def TrainModel(model, sdf, dx, symbol, days=5, maxiter=1000, notebook=False):
     models[1].compile(loss=['categorical_crossentropy','mse'], optimizer='adam')
 
     fig, ax = plt.subplots(2, 2, figsize=(16,8))
-    last_plot = 0.0
     cum_results = np.zeros((maxiter,3))
 
     for ee in range(maxiter):
@@ -125,19 +123,6 @@ def TrainModel(model, sdf, dx, symbol, days=5, maxiter=1000, notebook=False):
             # evaluate the performance of the trade choices
             results[mm] = EvaluateChoices(sdf, symbol, dates, choices[mm])
 
-        # plot training every second
-        if time.time() - last_plot > 1.0:
-            for mm in range(2): ax[mm,0].clear()
-            for mm in range(len(models)):
-                rc = ax[0,0].scatter(np.arange(days), [cc[0] for cc in choices[mm]])
-                rc = ax[1,0].scatter(np.arange(days), [cc[1] for cc in choices[mm]])
-            if notebook:
-                display.clear_output(wait=True)
-                display.display(plt.gcf())
-            else:
-                plt.pause(0.05)
-            last_plot = time.time()
-        
         # the model earning the most money wins
         # the winner defines the truth data for this week
         # if neither is successful, skip training this week
@@ -157,16 +142,22 @@ def TrainModel(model, sdf, dx, symbol, days=5, maxiter=1000, notebook=False):
             #print('updated model %s'%str(mm), cum_results[ee][1:], results)
             
         # update the plots
-        for mm in range(2): ax[mm, 1].clear()
+        for mm in range(2): ax[mm,0].clear(), ax[mm,1].clear()
+        for mm in range(len(models)):
+            rc = ax[0, 0].scatter(np.arange(days), [cc[0] for cc in choices[mm]])
+            rc = ax[1, 0].scatter(np.arange(days), [cc[1] for cc in choices[mm]])
         train_points = np.where(cum_results[:, 1] > 0)[0]
         rc = ax[0, 1].plot(np.arange(ee), cum_results[:ee, 0])
         rc = ax[1, 1].plot(train_points, cum_results[train_points, 1:])
-        rc = ax[1, 1].set_yscale('log')
+        ax[1, 1].set_yscale('log'), ax[1,0].set_xlabel('Trading Day'), ax[1,1].set_xlabel('Training Iteration')
+    
         if notebook:
             display.clear_output(wait=True)
             display.display(plt.gcf())
         else:
             plt.pause(0.05)
+    
+    if notebook: plt.close()
 
 
 #########################################################

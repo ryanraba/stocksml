@@ -5,7 +5,7 @@ with open('README.md', "r") as fid:   #encoding='utf-8'
 
 setup(
     name='stocksml',
-    version='0.0.1rc9',
+    version='0.0.1rc13',
     description='Stock Prediction using Machine Learning',
     long_description=long_description,
     long_description_content_type="text/markdown",

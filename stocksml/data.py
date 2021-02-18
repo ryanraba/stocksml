@@ -16,9 +16,7 @@
 this module will be included in the api
 """
 
-import pandas_datareader.data as web
 import pandas as pd
-from datetime import datetime as dtf
 import os
 import numpy as np
 
@@ -108,38 +106,71 @@ def Breakout(highs, lows):
 
 
 #####################################################################
-## Download stock data from iex using api key from text file
 ##
-## will count against monthly quota
+##
+##
 ######################################################################
-def FetchData(symbols, train_start, train_end, append=False):
-    cpdf = pd.DataFrame([])
-    for symbol in symbols:
-        if append or not os.path.exists('./data/%s.csv' % symbol):
-            with open('iex_key.txt', 'r') as fid:
-                apikey = fid.read().strip()
+def FetchData(symbols, apikey, start=None, stop=None, path=None, append=True):
+    """
+    Download symbol data from iex using provided api key, counts against quota
 
-            print('fetching %s data...' % symbol)
-            pdf = web.DataReader(symbol, 'iex', dtf.strptime(train_start, '%Y-%m-%d'), dtf.strptime(train_end, '%Y-%m-%d'), api_key=apikey)
+    Parameters
+    ----------
+    symbols : list of str
+        list of ticker symbols to retrieve
+    apikey : str
+        api token of the iex account to use
+    start : str
+        start date of historical prices to retrieve. Format is yyyy-mm-dd.
+        Default None uses current date
+    stop : str
+        stop date of historical prices to retrieve. Format is yyyy-mm-dd.
+        Default None uses current date
+    path : str
+        path of folder to place downloaded data. Default None uses current directory
+    append : bool
+        append new data to existing file or create if missing. Duplicate dates ignored.
+        False will overwrite file. Default True
+    """
+    import time
+    import pandas_datareader.data as web
+
+    if start is None: start = time.strftime("%Y-%m-%d")
+    if stop is None: stop = time.strftime("%Y-%m-%d")
+    if path is None: path = './'
+    if not path.endswith('/'): path = path + '/'
     
-            if append and os.path.exists('./data/%s.csv' % symbol):
-                opdf = pd.read_csv('./data/%s.csv' % symbol).set_index('date')
-                pdf = pd.concat([opdf, pdf]).sort_index()
-    
-            pdf.to_csv('./%s.csv' % symbol)
+    sdf = pd.DataFrame([])
+    for symbol in symbols:
+        print('fetching %s data...' % symbol, end=' ')
+        ddf = web.DataReader(symbol, 'iex', start, stop, api_key=apikey)
+        print('%s days' % str(len(ddf)))
+
+        if append and os.path.exists(path+symbol+'.csv'):
+            print('merging with existing file for %s...' % symbol)
+            pdf = pd.read_csv(path+symbol+'.csv').set_index('date')
+            new_dates = np.setdiff1d(pdf.index.values, ddf.index.values)
+            ddf = pd.concat([ddf, pdf.loc[new_dates]]).sort_index()
             
-        pdf = pd.read_csv('./data/%s.csv' % symbol).set_index('date')
-        pdf = pdf.rename(columns=dict([(cc,symbol.lower()+'_'+cc) for cc in pdf.columns]))
-        cpdf = cpdf.merge(pdf, 'right', left_index=True, right_index=True)
+        ddf.to_csv(path+symbol+'.csv')
         
-    return cpdf
+    return
+
 
 
 ##############################################################
-def FetchDemoData():
+def LoadData(symbols=None, path=None):
     """
-    Fetch included demonstration data files
+    Load price data from CSV files
     
+    Parameters
+    ----------
+    symbols : list of str
+        list of ticker symbol files to load. Files should be in the form of symbol.csv.
+        Default None loads all files in provided directory.
+    path : str
+        path to symbol data files. Default None uses included demonstration data folder location
+
     Returns
     -------
     pandas.DataFrame
@@ -147,29 +178,45 @@ def FetchDemoData():
     """
     import pkg_resources
 
-    cpdf = pd.DataFrame([])
-    symbols = []
-    dpath = pkg_resources.resource_filename('stocksml', 'data/')
-    if os.path.exists(dpath):
-        for file in os.listdir(dpath):
-            if not file.endswith('.csv'): continue
-            symbols += [file.split('.csv')[0]]
-            pdf = pd.read_csv(dpath+file).set_index('date')
-            pdf = pdf.rename(columns=dict([(cc, symbols[-1].lower() + '_' + cc) for cc in pdf.columns]))
-            cpdf = cpdf.merge(pdf, 'right', left_index=True, right_index=True)
+    if path is None:
+        path = pkg_resources.resource_filename('stocksml', 'data/')
+    if not path.endswith('/'): path = path + '/'
+
+    sdf = None
+    if os.path.exists(path):
+        if symbols is None:
+            symbols = [ff.split('.csv')[0] for ff in os.listdir(path)]
     
-    return cpdf, symbols
+        for symbol in symbols:
+            if not os.path.exists(path+symbol+'.csv'): continue
+            
+            pdf = pd.read_csv(path+symbol+'.csv').set_index('date')
+            pdf = pdf.rename(columns=dict([(cc, symbol.lower() + '_' + cc) for cc in pdf.columns]))
+            sdf = pdf if sdf is None else sdf.merge(pdf, 'inner', left_index=True, right_index=True)
+
+    symbols = list(np.unique([ss.split('_')[0] for ss in sdf.columns]))
+    return sdf, symbols
 
 
 ################################################################
-## read CSV files in to Pandas Dataframe and build features
-##
-################################################################
-def BuildData(sdf, symbols):
+def BuildData(sdf):
+    """
+    Transform price data from symbol dataframe to training feature set
+
+    Parameters
+    ----------
+    sdf : pandas.DataFrame
+        symbol dataframe
+    
+    Returns
+    -------
+    pandas.DataFrame
+        feature dataframe
+    """
+    symbols = list(np.unique([ss.split('_')[0] for ss in sdf.columns]))
     cpdf = pd.DataFrame()
-    for ii, symbol in enumerate(symbols):
-        print('building %s data...' % symbol)
-        ss = symbol.lower()
+    for ii, ss in enumerate(symbols):
+        print('building %s data...' % ss.upper())
         pdf = sdf[[cc for cc in sdf.columns if cc.startswith(ss)]]
         
         # build features
@@ -183,23 +230,10 @@ def BuildData(sdf, symbols):
                 dm[:, kk] = (dm[:, kk] - np.mean(dm[:, kk])) / np.ptp(dm[:, kk])
 
         # make a dataframe out of the features and merge to combined dataframe
-        fpdf = pd.DataFrame(dm, index=pdf.index, columns=[symbol.lower() + str(ff) for ff in range(dm.shape[1])])
+        fpdf = pd.DataFrame(dm, index=pdf.index, columns=[ss + str(ff) for ff in range(dm.shape[1])])
         cpdf = cpdf.merge(fpdf, 'right', left_index=True, right_index=True)
         
     return cpdf
-
-
-
-################################################################
-## add third dimension for rnn/cnn based models
-##
-################################################################
-def Vectorize(values, depth=1):
-    dx = np.repeat(values[:, None, :], depth, axis=1)
-    for ii in range(1,depth):
-        dx[:,ii,:] = np.vstack((np.zeros((ii,values.shape[1])), dx[:-ii,ii,:]))
-    
-    return dx
 
 
 

@@ -1,12 +1,14 @@
 Stocks ML
 ===================================
 
-A project to replace the MeasurementSet and Image data manipulation and processing
-infrastructure of CASA with a parallel, scalable, and largely off-the-shelf solution.
+Apply artificial intelligence to the stock market. StocksML can build an
+entire trading strategy from scratch and simulate the performance of that
+strategy against any specified benchmark.
+
 
 .. toctree::
    :hidden:
    :maxdepth: 3
 
-   quick_start
    api
+   quick_start

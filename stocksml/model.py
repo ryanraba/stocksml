@@ -63,30 +63,32 @@ def BuildModel(fdf, choices, layers=[('rnn',32),('dnn',64),('dnn',32)], depth=5,
         dx = fdf.values
         
     # fixed input to model
-    ins = Input(shape=dx.shape[1:])
+    ins = Input(shape=dx.shape[1:], name='input')
     hh = ins
     
     # build middle layers according to specified structure
     for ll, layer in enumerate(layers):
+        name = layer[0]+'_'+str(ll)
+        flatten = (ll>=len(layers)-1) or (layers[ll+1][0]=='dnn') or ((ll<len(layers)-2) and (layers[ll+1][0]=='drop') and (layers[ll+2][0]=='dnn'))
         if layer[0] is 'dnn':
-            hh = Dense(layer[1], activation='tanh')(hh)
+            hh = Dense(layer[1], activation='tanh', name=name)(hh)
         elif layer[0] is 'rnn':
-            hh = SimpleRNN(layer[1], activation='tanh', return_sequences=(ll+1<len(layers)) and (layers[ll+1][0] in ['cnn','lstm','rnn']))(hh)
+            hh = SimpleRNN(layer[1], activation='tanh', return_sequences=not flatten, name=name)(hh)
         elif layer[0] is 'lstm':
-            hh = LSTM(layer[1], activation='tanh', return_sequences=(ll+1<len(layers)) and (layers[ll+1][0] in ['cnn','lstm','rnn']))(hh)
+            hh = LSTM(layer[1], activation='tanh', return_sequences=not flatten, name=name)(hh)
         elif layer[0] is 'cnn':
-            hh = Conv1D(layer[1], 3, padding='valid', activation='relu')(hh)
-            if (ll+1 >= len(layers)) or (layers[ll+1][0] in ['dnn']):
-                hh = Flatten()(hh)
+            hh = Conv1D(layer[1], 3, padding='valid', activation='relu', name=name)(hh)
+            if flatten:
+                hh = Flatten(name='flatten')(hh)
         elif layer[0] is 'drop':
-            hh = Dropout(layer[1])(hh)
+            hh = Dropout(layer[1], name=name)(hh)
     
     # fixed outputs from model
-    action = Dense(5, activation='softmax')(hh)
-    symbol = Dense(choices, activation='softmax')(hh)
-    limit = Dense(1, activation='tanh')(hh)
+    action = Dense(5, activation='softmax', name='action')(hh)
+    symbol = Dense(choices, activation='softmax', name='symbol')(hh)
+    limit = Dense(1, activation='tanh', name='limit')(hh)
 
-    model = Model(inputs=ins, outputs=[action, symbol, limit])
+    model = Model(inputs=ins, outputs=[action, symbol, limit], name='model')
     model.compile(loss=['categorical_crossentropy','categorical_crossentropy', 'mse'], optimizer='adam')
 
     models = [model]

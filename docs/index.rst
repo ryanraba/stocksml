@@ -12,3 +12,4 @@ strategy against any specified benchmark.
 
    api
    quick_start
+   modeling

@@ -26,7 +26,7 @@ np.random.seed(13)
 
 
 ###################################################
-def BuildModel(fdf, choices, layers=[('rnn',32),('dnn',64),('dnn',32)], depth=5, count=2):
+def BuildModel(fdf, choices, layers=[('rnn',32),('drop',0.5),('dnn',64),('drop',0.5),('dnn',32)], depth=5, count=2):
     """
     Build a model with the given structure
 
@@ -133,9 +133,10 @@ def LearnStrategy(models, sdf, dx, symbols, baseline=None, days=5, maxiter=1000,
     
     fig, ax = plt.subplots(2, 2, figsize=(16,8))
     cum_results = np.zeros((maxiter,4))
-    cum_choices = np.zeros((maxiter,len(models)))
-    cum_symbols = np.zeros((maxiter,len(models)))
-    cum_limits = np.zeros((maxiter, len(models)))
+    cum_choices = np.zeros(maxiter)
+    cum_symbols = np.zeros(maxiter)
+    cum_limits = np.zeros(maxiter)
+    cum_winner = np.zeros(maxiter)
 
     for ee in range(maxiter):
         
@@ -144,9 +145,9 @@ def LearnStrategy(models, sdf, dx, symbols, baseline=None, days=5, maxiter=1000,
         dates = list(sdf.index.values[ss:ss + days])
         
         # each model makes a set of trades for the week
-        results = np.zeros((len(models)))
-        choices = [[]] * len(models)
-        for mm in range(len(models)):
+        results = np.zeros((len(models)-1))
+        choices = [[]] * (len(models)-1)
+        for mm in range(len(models)-1):
             preds = models[mm].predict_on_batch(dx[ss:ss+days])
             # list of tuples (action, symbol, limit)
             choices[mm] = [(np.argmax(preds[0][dd]), np.argmax(preds[1][dd]), preds[2][dd][0]) for dd in range(days)]
@@ -160,10 +161,11 @@ def LearnStrategy(models, sdf, dx, symbols, baseline=None, days=5, maxiter=1000,
         # the winner defines the truth data for this week
         # if neither is successful, skip training this week
         winner = np.argmax(results)
-        cum_results[ee][0] = results[winner]
-        cum_choices[ee] = np.std([cc[0] for cc in choices[mm] for mm in range(len(choices))], axis=0)
-        cum_symbols[ee] = np.std([cc[1] for cc in choices[mm] for mm in range(len(choices))], axis=0)
-        cum_limits[ee] = np.std([cc[2] for cc in choices[mm] for mm in range(len(choices))], axis=0)
+        cum_results[ee][0] = np.mean(results)
+        cum_choices[ee] = np.std([cc[0] for cc in choices[mm] for mm in range(len(choices))], axis=0) #[winner]
+        cum_symbols[ee] = np.std([cc[1] for cc in choices[mm] for mm in range(len(choices))], axis=0) #[winner]
+        cum_limits[ee] = np.std([cc[2] for cc in choices[mm] for mm in range(len(choices))], axis=0) #[winner]
+        cum_winner[ee] = winner
         if np.max(results) <= 1.0: continue
         if np.max(np.abs(np.diff(results))) < 0.0025: continue
 
@@ -172,11 +174,10 @@ def LearnStrategy(models, sdf, dx, symbols, baseline=None, days=5, maxiter=1000,
         for dd in range(days): truth[1][dd, choices[winner][dd][1]] = 1
         truth[2] = np.array([ll[2] for ll in choices[winner]]).reshape(-1, 1).clip(-0.05, 0.05)
 
-        # train losing model with winners truth data if winner made money
-        for mm in range(len(models)):
-            if mm == winner: continue
-            cum_results[ee][1:] = models[mm].train_on_batch(dx[ss:ss+days], truth)[1:]
-            #print('updated model %s'%str(mm), cum_results[ee][1:], results)
+        # train winning model with truth
+        losses = models[-1].train_on_batch(dx[ss:ss+days], truth)[1:]
+        cum_results[ee][1:] = models[winner].train_on_batch(dx[ss:ss+days], truth)[1:]
+        #print('updated model %s'%str(mm), cum_results[ee][1:], results)
             
         # update the plots
         for mm in range(2): ax[mm,0].clear(), ax[mm,1].clear()
@@ -184,9 +185,10 @@ def LearnStrategy(models, sdf, dx, symbols, baseline=None, days=5, maxiter=1000,
         #    rc = ax[0, 0].scatter(np.arange(days), [cc[0] for cc in choices[mm]])
         #    rc = ax[1, 0].scatter(np.arange(days), [cc[1] for cc in choices[mm]])
         train_points = np.where(cum_results[:, 1] > 0)[0]
-        rc = ax[0, 0].plot(np.arange(ee), cum_choices[:ee, 0], marker='.', linewidth=0.0)
-        rc = ax[0, 0].plot(np.arange(ee), cum_symbols[:ee, 0], marker='.', linewidth=0.0)
-        rc = ax[1, 0].plot(np.arange(ee), cum_limits[:ee, 0], marker='.', linewidth=0.0)
+        rc = ax[0, 0].plot(np.arange(ee), cum_choices[:ee], marker='.', linewidth=0.0)
+        rc = ax[0, 0].plot(np.arange(ee), cum_symbols[:ee], marker='.', linewidth=0.0)
+        rc = ax[0, 0].plot(np.arange(ee), cum_limits[:ee], marker='.', linewidth=0.0)
+        rc = ax[1, 0].plot(np.arange(ee), cum_winner[:ee], marker='.', linewidth=0.0)
         rc = ax[0, 1].plot(np.arange(ee), cum_results[:ee, 0])
         rc = ax[1, 1].plot(train_points, cum_results[train_points, 1:])
         ax[1,1].set_yscale('log'), ax[1,0].set_xlabel('Trading Iteration'), ax[1,1].set_xlabel('Training Iteration')
@@ -260,8 +262,8 @@ def Demo(notebook=False):
     # build to feature dataframe
     fdf = BuildData(sdf)
 
-    models, dx = BuildModel(fdf, len(symbols), count=2)
+    models, dx = BuildModel(fdf, len(symbols), count=11)
 
-    LearnStrategy(models, sdf, dx, symbols, 'SPY', 5, 1000, notebook)
+    LearnStrategy(models, sdf, dx, symbols, 'SPY', 5, 2000, notebook)
 
-    ExamineStrategy(models[0], sdf, dx, symbols, '2021-02-01', days=5, baseline='SPY')
+    ExamineStrategy(models[-1], sdf, dx, symbols, '2021-02-01', days=5, baseline='SPY')

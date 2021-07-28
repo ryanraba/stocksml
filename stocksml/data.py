@@ -187,8 +187,9 @@ def LoadData(symbols=None, path=None):
         if symbols is None:
             symbols = [ff.split('.csv')[0] for ff in os.listdir(path)]
     
-        for symbol in symbols:
+        for ii, symbol in enumerate(symbols):
             if not os.path.exists(path+symbol+'.csv'): continue
+            print('processing %s %i of %i...   ' % (symbol, ii, len(symbols)), end='\r')
             
             pdf = pd.read_csv(path+symbol+'.csv').set_index('date')
             pdf = pdf.rename(columns=dict([(cc, symbol.lower() + '_' + cc) for cc in pdf.columns]))
@@ -196,6 +197,7 @@ def LoadData(symbols=None, path=None):
 
     symbols = list(np.unique([ss.split('_')[0] for ss in sdf.columns]))
     return sdf, symbols
+
 
 
 ################################################################
@@ -216,7 +218,7 @@ def BuildData(sdf):
     symbols = list(np.unique([ss.split('_')[0] for ss in sdf.columns]))
     cpdf = pd.DataFrame()
     for ii, ss in enumerate(symbols):
-        print('building %s data...' % ss.upper())
+        print('building %s data...   ' % ss.upper(), end='\r')
         pdf = sdf[[cc for cc in sdf.columns if cc.startswith(ss)]]
         
         # build features
@@ -232,6 +234,7 @@ def BuildData(sdf):
         # make a dataframe out of the features and merge to combined dataframe
         fpdf = pd.DataFrame(dm, index=pdf.index, columns=[ss + str(ff) for ff in range(dm.shape[1])])
         cpdf = cpdf.merge(fpdf, 'right', left_index=True, right_index=True)
+        print()
         
     return cpdf
 
